@@ -1,135 +1,107 @@
-// PDF export: builds the full multi-sheet booklet PDF via jsPDF.
+// PDF export: builds the full multi-sheet PDF via jsPDF, one PDF page per
+// printed sheet side (grid or saddle-stitch order, see geometry.js).
+
+// Render a pdf.js page (with the user's extra rotation) so that its full
+// width spans widthMm at the given DPI.
+async function renderPdfPageAt(pdfPage, rotation, widthMm, dpi) {
+  const total = (pdfPage.rotate + (rotation || 0)) % 360;
+  const base = pdfPage.getViewport({ scale: 1, rotation: total });
+  const vp = pdfPage.getViewport({ scale: (widthMm / 25.4 * dpi) / base.width, rotation: total });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(vp.width);
+  canvas.height = Math.round(vp.height);
+  await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  return { canvas, width: canvas.width, height: canvas.height };
+}
 
 async function downloadPDF() {
   showLoading('Generating PDF...');
+  try {
+    await buildPDF();
+  } catch (err) {
+    console.error(err);
+    alert(`Could not generate the PDF: ${err.message}`);
+  } finally {
+    hideLoading();
+  }
+}
 
-  const sheetW_mm = parseFloat(document.getElementById('sheetW').value);
-  const sheetH_mm = parseFloat(document.getElementById('sheetH').value);
-  const pageW_mm = parseFloat(document.getElementById('pageW').value);
-  const pageH_mm = parseFloat(document.getElementById('pageH').value);
-  const cols = parseInt(document.getElementById('cols').value);
-  const rows = parseInt(document.getElementById('rows').value);
-  const direction = document.getElementById('direction').value;
-  const borderStyle = document.getElementById('borderStyle').value;
-  const borderWidth = parseFloat(document.getElementById('borderWidth').value);
-  const borderColor = document.getElementById('borderColor').value;
-  const colGap_mm = parseFloat(document.getElementById('colGap').value);
-  const rowGap_mm = parseFloat(document.getElementById('rowGap').value);
-  const cropTop_mm = parseFloat(document.getElementById('cropTop').value);
-  const cropBottom_mm = parseFloat(document.getElementById('cropBottom').value);
-  const cropLeft_mm = parseFloat(document.getElementById('cropLeft').value);
-  const cropRight_mm = parseFloat(document.getElementById('cropRight').value);
-  const pageNumEnabled = document.getElementById('pageNumEnabled').value === 'on';
-  const pageNumPos = document.getElementById('pageNumPos').value;
-  const pageNumSize = parseFloat(document.getElementById('pageNumSize').value);
-  const pageNumStart = parseInt(document.getElementById('pageNumStart').value);
-  const pageNumColor = document.getElementById('pageNumColor').value;
-  const pageNumOffset_mm = parseFloat(document.getElementById('pageNumOffset').value);
+function drawPageNumber(pdf, cfg, numText, x_mm, y_mm) {
+  pdf.setFontSize(cfg.pageNumSize);
+  pdf.setTextColor(cfg.pageNumColor);
+  let tx_mm, align;
+  if (cfg.pageNumPos.endsWith('left')) {
+    align = 'left';
+    tx_mm = x_mm + cfg.pageNumOffset;
+  } else if (cfg.pageNumPos.endsWith('right')) {
+    align = 'right';
+    tx_mm = x_mm + cfg.pageW - cfg.pageNumOffset;
+  } else {
+    align = 'center';
+    tx_mm = x_mm + cfg.pageW / 2;
+  }
+  const fontH_mm = cfg.pageNumSize * 0.352778;
+  const ty_mm = cfg.pageNumPos.startsWith('top')
+    ? y_mm + cfg.pageNumOffset + fontH_mm
+    : y_mm + cfg.pageH - cfg.pageNumOffset;
+  pdf.text(numText, tx_mm, ty_mm, { align });
+}
 
-  const pagesPerSheet = rows * cols;
-  const totalSheets = Math.ceil(state.pages.length / pagesPerSheet);
+function drawPdfBorder(pdf, cfg, x_mm, y_mm) {
+  if (cfg.borderStyle === 'none') return;
+  const { pageW, pageH, borderStyle, borderWidth } = cfg;
+  pdf.setDrawColor(cfg.borderColor);
+  pdf.setLineWidth(borderWidth * 0.352778); // pt to mm
+  const dotted = borderStyle === 'dotted' || borderStyle === 'double-dotted';
+  pdf.setLineDashPattern(dotted ? [0.5, 0.5] : [], 0);
+  pdf.rect(x_mm, y_mm, pageW, pageH, 'S');
+  if (borderStyle === 'double' || borderStyle === 'double-dotted') {
+    const off = borderWidth * 0.352778 * 2;
+    pdf.rect(x_mm + off, y_mm + off, pageW - 2 * off, pageH - 2 * off, 'S');
+  }
+  pdf.setLineDashPattern([], 0);
+}
 
-  const gridW_mm = cols * pageW_mm + (cols - 1) * colGap_mm;
-  const gridH_mm = rows * pageH_mm + (rows - 1) * rowGap_mm;
-  const offsetX_mm = (sheetW_mm - gridW_mm) / 2;
-  const offsetY_mm = (sheetH_mm - gridH_mm) / 2;
+async function buildPDF() {
+  const cfg = readConfig();
+  const geo = gridGeometry(cfg);
+  const sides = buildSides(cfg, state.pages.length);
+  const outputDpi = parseFloat(document.getElementById('outputDpi').value) || 300;
+  const usePng = document.getElementById('imageFormat').value === 'png';
 
-  const cellOrder = getCellOrder(rows, cols, direction);
-
-  // --- Generate PDF ---
   const { jsPDF } = window.jspdf;
-  const orientation = sheetW_mm > sheetH_mm ? 'l' : 'p';
-  const pdf = new jsPDF({
-    orientation,
-    unit: 'mm',
-    format: [sheetW_mm, sheetH_mm],
-  });
+  const orientation = cfg.sheetW > cfg.sheetH ? 'l' : 'p';
+  const pdf = new jsPDF({ orientation, unit: 'mm', format: [cfg.sheetW, cfg.sheetH] });
 
-  for (let s = 0; s < totalSheets; s++) {
-    loadingText.textContent = `Building PDF page ${s + 1}/${totalSheets}...`;
-    if (s > 0) pdf.addPage([sheetW_mm, sheetH_mm], orientation);
+  for (let s = 0; s < sides.length; s++) {
+    loadingText.textContent = `Building PDF page ${s + 1}/${sides.length}...`;
+    if (s > 0) pdf.addPage([cfg.sheetW, cfg.sheetH], orientation);
 
-    for (let i = 0; i < pagesPerSheet; i++) {
-      const pageIdx = s * pagesPerSheet + i;
-      if (pageIdx >= state.pages.length) break;
+    for (const { row, col, page } of sides[s].cells) {
+      if (page === null) continue; // blank booklet page
+      const x_mm = geo.cellX(col);
+      const y_mm = geo.cellY(row);
 
-      const [row, col] = cellOrder[i];
-      const x_mm = offsetX_mm + col * (pageW_mm + colGap_mm);
-      const y_mm = offsetY_mm + row * (pageH_mm + rowGap_mm);
-
-      // Crop source and add image
-      const pg = state.pages[pageIdx];
-      const srcW = pg.width;
-      const srcH = pg.height;
-      const origW_mm = pageW_mm + cropLeft_mm + cropRight_mm;
-      const origH_mm = pageH_mm + cropTop_mm + cropBottom_mm;
-      const sx = (cropLeft_mm / origW_mm) * srcW;
-      const sy = (cropTop_mm / origH_mm) * srcH;
-      const sw = (pageW_mm / origW_mm) * srcW;
-      const sh = (pageH_mm / origH_mm) * srcH;
+      const pg = state.pages[page];
+      const origW_mm = cfg.pageW + cfg.cropLeft + cfg.cropRight;
+      const src = pg.pdfPage
+        ? await renderPdfPageAt(pg.pdfPage, pg.rotation, origW_mm, outputDpi)
+        : previewSource(pg); // image pages are kept at full resolution
+      const { sx, sy, sw, sh } = cropRect(src, cfg);
       const cropCanvas = document.createElement('canvas');
-      cropCanvas.width = Math.round(sw);
-      cropCanvas.height = Math.round(sh);
-      cropCanvas.getContext('2d').drawImage(pg.canvas, sx, sy, sw, sh, 0, 0, cropCanvas.width, cropCanvas.height);
-      const dataURL = cropCanvas.toDataURL('image/jpeg', 0.92);
-      pdf.addImage(dataURL, 'JPEG', x_mm, y_mm, pageW_mm, pageH_mm);
+      cropCanvas.width = Math.max(1, Math.round(sw));
+      cropCanvas.height = Math.max(1, Math.round(sh));
+      cropCanvas.getContext('2d').drawImage(src.canvas, sx, sy, sw, sh, 0, 0, cropCanvas.width, cropCanvas.height);
+      if (pg.pdfPage) src.canvas.width = 0; // release the high-res render
+      const dataURL = usePng ? cropCanvas.toDataURL('image/png') : cropCanvas.toDataURL('image/jpeg', 0.95);
+      pdf.addImage(dataURL, usePng ? 'PNG' : 'JPEG', x_mm, y_mm, cfg.pageW, cfg.pageH, undefined, 'FAST');
 
-      // Draw page number in PDF
-      if (pageNumEnabled) {
-        const numText = String(pageIdx + pageNumStart);
-        const fontSizePt = pageNumSize;
-        pdf.setFontSize(fontSizePt);
-        pdf.setTextColor(pageNumColor);
-        let tx_mm, ty_mm, align;
-        if (pageNumPos.endsWith('left')) {
-          align = 'left';
-          tx_mm = x_mm + pageNumOffset_mm;
-        } else if (pageNumPos.endsWith('right')) {
-          align = 'right';
-          tx_mm = x_mm + pageW_mm - pageNumOffset_mm;
-        } else {
-          align = 'center';
-          tx_mm = x_mm + pageW_mm / 2;
-        }
-        const fontH_mm = fontSizePt * 0.352778;
-        if (pageNumPos.startsWith('top')) {
-          ty_mm = y_mm + pageNumOffset_mm + fontH_mm;
-        } else {
-          ty_mm = y_mm + pageH_mm - pageNumOffset_mm;
-        }
-        pdf.text(numText, tx_mm, ty_mm, { align });
-      }
-
-      // Draw borders in PDF
-      if (borderStyle !== 'none') {
-        pdf.setDrawColor(borderColor);
-        pdf.setLineWidth(borderWidth * 0.352778); // pt to mm
-
-        if (borderStyle === 'solid') {
-          pdf.setLineDashPattern([], 0);
-          pdf.rect(x_mm, y_mm, pageW_mm, pageH_mm, 'S');
-        } else if (borderStyle === 'dotted') {
-          pdf.setLineDashPattern([0.5, 0.5], 0);
-          pdf.rect(x_mm, y_mm, pageW_mm, pageH_mm, 'S');
-          pdf.setLineDashPattern([], 0);
-        } else if (borderStyle === 'double') {
-          const off = borderWidth * 0.352778 * 2;
-          pdf.setLineDashPattern([], 0);
-          pdf.rect(x_mm, y_mm, pageW_mm, pageH_mm, 'S');
-          pdf.rect(x_mm + off, y_mm + off, pageW_mm - 2 * off, pageH_mm - 2 * off, 'S');
-        } else if (borderStyle === 'double-dotted') {
-          const off = borderWidth * 0.352778 * 2;
-          pdf.setLineDashPattern([0.5, 0.5], 0);
-          pdf.rect(x_mm, y_mm, pageW_mm, pageH_mm, 'S');
-          pdf.rect(x_mm + off, y_mm + off, pageW_mm - 2 * off, pageH_mm - 2 * off, 'S');
-          pdf.setLineDashPattern([], 0);
-        }
-      }
+      if (cfg.pageNumEnabled) drawPageNumber(pdf, cfg, String(page + cfg.pageNumStart), x_mm, y_mm);
+      drawPdfBorder(pdf, cfg, x_mm, y_mm);
     }
 
     await new Promise(r => setTimeout(r, 0));
   }
 
-  pdf.save('booklet.pdf');
-  hideLoading();
+  pdf.save(cfg.mode === 'saddle' ? 'booklet.pdf' : 'sheets.pdf');
 }

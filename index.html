@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Booklet Creator</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/tool.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="shared/icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#1a1d27">
+<script src="shared/pnp-theme.js"></script>
+<link rel="stylesheet" href="shared/pnp-shared.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
@@ -13,7 +19,7 @@
 <div class="container">
   <header>
     <h1>Booklet Creator</h1>
-    <p class="subtitle">Tile images or PDF pages into a print-ready grid across sheets, with borders, spacing, and page numbers.</p>
+    <p class="subtitle">Tile images and PDF pages into a print-ready grid, or impose them as a fold-and-staple booklet — with borders, spacing and page numbers.</p>
   </header>
 
   <div class="content">
@@ -25,9 +31,10 @@
         <div class="panel-title">Pages Input</div>
         <div class="dropzone" id="dropZone">
           <div class="dz-title">Drop images or a PDF here</div>
-          <div>PNG, JPG, WEBP or single PDF</div>
+          <div>Images and PDFs — add as many as you like</div>
           <input type="file" id="fileInput" multiple accept="image/*,.pdf">
         </div>
+        <div id="importSlot"></div>
         <div id="fileList"></div>
         <div class="thumbnails-container" id="pageThumbs"></div>
       </div>
@@ -35,14 +42,18 @@
       <!-- Sheet Size -->
       <div class="panel">
         <div class="panel-title">Sheet Size (output paper) <span class="help" tabindex="0" data-tip="The physical paper size you'll print on, e.g. A4 or Letter.">?</span></div>
+        <div class="control-group">
+          <label for="sheetPreset">Preset</label>
+          <select id="sheetPreset"></select>
+        </div>
         <div class="row">
           <div class="control-group">
             <label for="sheetW">Width (mm)</label>
-            <input type="number" id="sheetW" value="297" min="10" max="2000" step="1">
+            <input type="number" id="sheetW" value="297" min="10" max="2000" step="1" data-unit="mm">
           </div>
           <div class="control-group">
             <label for="sheetH">Height (mm)</label>
-            <input type="number" id="sheetH" value="210" min="10" max="2000" step="1">
+            <input type="number" id="sheetH" value="210" min="10" max="2000" step="1" data-unit="mm">
           </div>
         </div>
       </div>
@@ -50,20 +61,35 @@
       <!-- Page Size -->
       <div class="panel">
         <div class="panel-title">Page Size (each page cell) <span class="help" tabindex="0" data-tip="The size of each individual source page/card as it's placed into the grid.">?</span></div>
+        <div class="control-group">
+          <label for="pagePreset">Preset</label>
+          <select id="pagePreset"></select>
+        </div>
         <div class="row">
           <div class="control-group">
             <label for="pageW">Width (mm)</label>
-            <input type="number" id="pageW" value="63" min="5" max="1000" step="1">
+            <input type="number" id="pageW" value="63" min="5" max="1000" step="1" data-unit="mm">
           </div>
           <div class="control-group">
             <label for="pageH">Height (mm)</label>
-            <input type="number" id="pageH" value="88" min="5" max="1000" step="1">
+            <input type="number" id="pageH" value="88" min="5" max="1000" step="1" data-unit="mm">
           </div>
         </div>
       </div>
 
-      <!-- Grid Layout -->
+      <!-- Mode -->
       <div class="panel">
+        <div class="panel-title">Layout Mode <span class="help" tabindex="0" data-tip="Grid tiles pages in order across sheets. Saddle-stitch booklet prints two pages per side in fold order: print double-sided (flip on short edge), stack, fold in the middle and staple. Blank pages are added to reach a multiple of 4.">?</span></div>
+        <div class="control-group">
+          <select id="mode">
+            <option value="grid">Grid (tile pages in order)</option>
+            <option value="saddle">Saddle-stitch booklet (fold &amp; staple)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Grid Layout -->
+      <div class="panel" id="gridPanel">
         <div class="panel-title">Grid Layout</div>
         <div class="row">
           <div class="control-group">
@@ -75,10 +101,11 @@
             <input type="number" id="rows" value="2" min="1" max="20" step="1">
           </div>
         </div>
+        <button type="button" class="btn-secondary btn-small" id="fitGridBtn">Fit grid to sheet</button>
       </div>
 
       <!-- Direction -->
-      <div class="panel">
+      <div class="panel" id="directionPanel">
         <div class="panel-title">Page Order Direction <span class="help" tabindex="0" data-tip="The order pages fill the grid cells on each sheet — matters for booklets where pages must come out in reading order after folding or binding.">?</span></div>
         <div class="control-group">
           <select id="direction">
@@ -124,11 +151,11 @@
         <div class="row">
           <div class="control-group">
             <label for="colGap">Column Gap</label>
-            <input type="number" id="colGap" value="0" min="0" max="50" step="0.5">
+            <input type="number" id="colGap" value="0" min="0" max="50" step="0.5" data-unit="mm">
           </div>
           <div class="control-group">
             <label for="rowGap">Row Gap</label>
-            <input type="number" id="rowGap" value="0" min="0" max="50" step="0.5">
+            <input type="number" id="rowGap" value="0" min="0" max="50" step="0.5" data-unit="mm">
           </div>
         </div>
       </div>
@@ -139,21 +166,21 @@
         <div class="row">
           <div class="control-group">
             <label for="cropTop">Top</label>
-            <input type="number" id="cropTop" value="0" min="0" max="500" step="0.5">
+            <input type="number" id="cropTop" value="0" min="0" max="500" step="0.5" data-unit="mm">
           </div>
           <div class="control-group">
             <label for="cropBottom">Bottom</label>
-            <input type="number" id="cropBottom" value="0" min="0" max="500" step="0.5">
+            <input type="number" id="cropBottom" value="0" min="0" max="500" step="0.5" data-unit="mm">
           </div>
         </div>
         <div class="row">
           <div class="control-group">
             <label for="cropLeft">Left</label>
-            <input type="number" id="cropLeft" value="0" min="0" max="500" step="0.5">
+            <input type="number" id="cropLeft" value="0" min="0" max="500" step="0.5" data-unit="mm">
           </div>
           <div class="control-group">
             <label for="cropRight">Right</label>
-            <input type="number" id="cropRight" value="0" min="0" max="500" step="0.5">
+            <input type="number" id="cropRight" value="0" min="0" max="500" step="0.5" data-unit="mm">
           </div>
         </div>
       </div>
@@ -203,7 +230,25 @@
           </div>
           <div class="control-group">
             <label for="pageNumOffset">Offset (mm)</label>
-            <input type="number" id="pageNumOffset" value="2" min="0" max="50" step="0.5">
+            <input type="number" id="pageNumOffset" value="2" min="0" max="50" step="0.5" data-unit="mm">
+          </div>
+        </div>
+      </div>
+
+      <!-- Output Quality -->
+      <div class="panel">
+        <div class="panel-title">Output Quality <span class="help" tabindex="0" data-tip="PDF pages are re-rendered at this resolution when you download, so text and line art stay sharp. Image files are always used at their own resolution.">?</span></div>
+        <div class="row">
+          <div class="control-group">
+            <label for="outputDpi">PDF Render DPI</label>
+            <input type="number" id="outputDpi" value="300" min="72" max="1200" step="1">
+          </div>
+          <div class="control-group">
+            <label for="imageFormat">Image Encoding</label>
+            <select id="imageFormat">
+              <option value="jpeg">JPEG (smaller)</option>
+              <option value="png">PNG (lossless)</option>
+            </select>
           </div>
         </div>
       </div>
@@ -222,7 +267,7 @@
       <div class="preview-canvas-container" id="previewArea">
         <div class="empty-state" id="emptyState">
           <div class="empty-state-icon">📄</div>
-          <p>Add pages to see a live preview</p>
+          <p>Add images or PDFs to see a live preview</p>
         </div>
       </div>
     </div>
@@ -234,6 +279,7 @@
   <p id="loadingText">Processing...</p>
 </div>
 
+<script src="shared/pnp-shared.js"></script>
 <script src="js/files.js"></script>
 <script src="js/thumbnails.js"></script>
 <script src="js/geometry.js"></script>

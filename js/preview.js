@@ -1,126 +1,148 @@
-// Live canvas preview generation (renders sheet 1 of the booklet layout).
+// Live canvas preview: one sheet side at a time, with navigation between
+// sides and a warning when the grid doesn't fit the sheet.
 
-// Live preview update
 let previewTimer = null;
+let previewSide = 0;
+
 function schedulePreview() {
   clearTimeout(previewTimer);
   previewTimer = setTimeout(updatePreview, 80);
 }
 
 function updatePreview() {
+  updateModeUI();
   if (state.pages.length === 0) return;
   generatePreviewSheet();
 }
 
-// Generate preview (first sheet only, synchronous-ish)
+// Grid-only controls are hidden in booklet mode.
+function updateModeUI() {
+  const saddle = document.getElementById('mode').value === 'saddle';
+  document.getElementById('gridPanel').hidden = saddle;
+  document.getElementById('directionPanel').hidden = saddle;
+}
+
 function generatePreviewSheet() {
-  const sheetW_mm = parseFloat(document.getElementById('sheetW').value);
-  const sheetH_mm = parseFloat(document.getElementById('sheetH').value);
-  const pageW_mm = parseFloat(document.getElementById('pageW').value);
-  const pageH_mm = parseFloat(document.getElementById('pageH').value);
-  const cols = parseInt(document.getElementById('cols').value);
-  const rows = parseInt(document.getElementById('rows').value);
-  const direction = document.getElementById('direction').value;
-  const borderStyle = document.getElementById('borderStyle').value;
-  const borderWidth = parseFloat(document.getElementById('borderWidth').value);
-  const borderColor = document.getElementById('borderColor').value;
-  const colGap_mm = parseFloat(document.getElementById('colGap').value);
-  const rowGap_mm = parseFloat(document.getElementById('rowGap').value);
-  const cropTop_mm = parseFloat(document.getElementById('cropTop').value);
-  const cropBottom_mm = parseFloat(document.getElementById('cropBottom').value);
-  const cropLeft_mm = parseFloat(document.getElementById('cropLeft').value);
-  const cropRight_mm = parseFloat(document.getElementById('cropRight').value);
-  const pageNumEnabled = document.getElementById('pageNumEnabled').value === 'on';
-  const pageNumPos = document.getElementById('pageNumPos').value;
-  const pageNumSize = parseFloat(document.getElementById('pageNumSize').value);
-  const pageNumStart = parseInt(document.getElementById('pageNumStart').value);
-  const pageNumColor = document.getElementById('pageNumColor').value;
-  const pageNumOffset_mm = parseFloat(document.getElementById('pageNumOffset').value);
+  const cfg = readConfig();
+  const geo = gridGeometry(cfg);
+  const sides = buildSides(cfg, state.pages.length);
+  previewSide = Math.min(previewSide, sides.length - 1);
+  const side = sides[previewSide];
 
-  const pagesPerSheet = rows * cols;
-  const totalSheets = Math.ceil(state.pages.length / pagesPerSheet);
+  const previewScale = Math.min((previewArea.clientWidth - 56) / (cfg.sheetW * MM_TO_PX), 1.5);
+  const canvasW = Math.round(cfg.sheetW * MM_TO_PX * previewScale);
+  const canvasH = Math.round(cfg.sheetH * MM_TO_PX * previewScale);
+  const pxPerMM = canvasW / cfg.sheetW;
 
-  const gridW_mm = cols * pageW_mm + (cols - 1) * colGap_mm;
-  const gridH_mm = rows * pageH_mm + (rows - 1) * rowGap_mm;
-  const offsetX_mm = (sheetW_mm - gridW_mm) / 2;
-  const offsetY_mm = (sheetH_mm - gridH_mm) / 2;
-
-  const previewScale = Math.min(
-    (previewArea.clientWidth - 56) / (sheetW_mm * MM_TO_PX),
-    1.5
-  );
-
-  const canvasW = Math.round(sheetW_mm * MM_TO_PX * previewScale);
-  const canvasH = Math.round(sheetH_mm * MM_TO_PX * previewScale);
-  const pxPerMM = canvasW / sheetW_mm;
-
-  const cellOrder = getCellOrder(rows, cols, direction);
-
-  // Render first sheet only
   const canvas = document.createElement('canvas');
   canvas.width = canvasW;
   canvas.height = canvasH;
   const ctx = canvas.getContext('2d');
-
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvasW, canvasH);
 
-  for (let i = 0; i < pagesPerSheet; i++) {
-    const pageIdx = i;
-    if (pageIdx >= state.pages.length) break;
+  side.cells.forEach(({ row, col, page }) => {
+    const x = geo.cellX(col) * pxPerMM;
+    const y = geo.cellY(row) * pxPerMM;
+    const w = cfg.pageW * pxPerMM;
+    const h = cfg.pageH * pxPerMM;
 
-    const [row, col] = cellOrder[i];
-    const x = (offsetX_mm + col * (pageW_mm + colGap_mm)) * pxPerMM;
-    const y = (offsetY_mm + row * (pageH_mm + rowGap_mm)) * pxPerMM;
-    const w = pageW_mm * pxPerMM;
-    const h = pageH_mm * pxPerMM;
+    if (page === null) {
+      // Blank page added to complete the booklet
+      ctx.save();
+      ctx.strokeStyle = '#d0d4e4';
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = '#9aa0b8';
+      ctx.font = `${Math.max(10, 12 * previewScale)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('blank', x + w / 2, y + h / 2);
+      ctx.restore();
+      return;
+    }
 
-    const pg = state.pages[pageIdx];
-    const srcW = pg.width;
-    const srcH = pg.height;
-    const origW_mm = pageW_mm + cropLeft_mm + cropRight_mm;
-    const origH_mm = pageH_mm + cropTop_mm + cropBottom_mm;
-    const sx = (cropLeft_mm / origW_mm) * srcW;
-    const sy = (cropTop_mm / origH_mm) * srcH;
-    const sw = (pageW_mm / origW_mm) * srcW;
-    const sh = (pageH_mm / origH_mm) * srcH;
-    ctx.drawImage(pg.canvas, sx, sy, sw, sh, x, y, w, h);
-    drawBorders(ctx, x, y, w, h, borderStyle, borderWidth, borderColor, pxPerMM / MM_TO_PT);
+    const src = previewSource(state.pages[page]);
+    const { sx, sy, sw, sh } = cropRect(src, cfg);
+    ctx.drawImage(src.canvas, sx, sy, sw, sh, x, y, w, h);
+    drawBorders(ctx, x, y, w, h, cfg.borderStyle, cfg.borderWidth, cfg.borderColor, pxPerMM / MM_TO_PT);
 
-    if (pageNumEnabled) {
-      const numText = String(pageIdx + pageNumStart);
-      const fontSize = pageNumSize * (pxPerMM / MM_TO_PT);
-      const offsetPx = pageNumOffset_mm * pxPerMM;
+    if (cfg.pageNumEnabled) {
+      const fontSize = cfg.pageNumSize * (pxPerMM / MM_TO_PT);
+      const offsetPx = cfg.pageNumOffset * pxPerMM;
       ctx.font = `${fontSize}px sans-serif`;
-      ctx.fillStyle = pageNumColor;
-      ctx.textBaseline = pageNumPos.startsWith('top') ? 'top' : 'bottom';
-      let tx, ty;
-      if (pageNumPos.endsWith('left')) {
+      ctx.fillStyle = cfg.pageNumColor;
+      ctx.textBaseline = cfg.pageNumPos.startsWith('top') ? 'top' : 'bottom';
+      let tx;
+      if (cfg.pageNumPos.endsWith('left')) {
         ctx.textAlign = 'left';
         tx = x + offsetPx;
-      } else if (pageNumPos.endsWith('right')) {
+      } else if (cfg.pageNumPos.endsWith('right')) {
         ctx.textAlign = 'right';
         tx = x + w - offsetPx;
       } else {
         ctx.textAlign = 'center';
         tx = x + w / 2;
       }
-      ty = pageNumPos.startsWith('top') ? y + offsetPx : y + h - offsetPx;
-      ctx.fillText(numText, tx, ty);
+      const ty = cfg.pageNumPos.startsWith('top') ? y + offsetPx : y + h - offsetPx;
+      ctx.fillText(String(page + cfg.pageNumStart), tx, ty);
     }
+  });
+
+  // Show where the sheet ends when the grid spills over it.
+  if (geo.overflows) {
+    ctx.save();
+    ctx.strokeStyle = '#e03131';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, canvasW - 2, canvasH - 2);
+    ctx.restore();
   }
 
   previewArea.innerHTML = '';
   emptyState.style.display = 'none';
   const stack = document.createElement('div');
-  stack.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;';
-  const info = document.createElement('div');
-  info.style.cssText = 'text-align:center;color:var(--text-dim);font-size:0.75rem;';
-  info.textContent = `Sheet 1 of ${totalSheets} · Preview`;
-  stack.appendChild(info);
+  stack.className = 'preview-stack';
+
+  const nav = document.createElement('div');
+  nav.className = 'preview-nav';
+  const prev = navButton('‹', 'Previous side', previewSide > 0, () => { previewSide--; generatePreviewSheet(); });
+  const next = navButton('›', 'Next side', previewSide < sides.length - 1, () => { previewSide++; generatePreviewSheet(); });
+  const info = document.createElement('span');
+  info.textContent = `${side.label} · ${previewSide + 1} of ${sides.length} side(s)`;
+  nav.append(prev, info, next);
+  stack.appendChild(nav);
+
+  if (geo.overflows) {
+    const warn = document.createElement('div');
+    warn.className = 'status error';
+    warn.textContent = `The pages need ${geo.gridW.toFixed(1)} × ${geo.gridH.toFixed(1)} mm but the sheet is ${cfg.sheetW} × ${cfg.sheetH} mm. Reduce the grid, gaps or page size${cfg.mode === 'grid' ? ' (or use “Fit grid to sheet”)' : ''}.`;
+    stack.appendChild(warn);
+  }
+  if (cfg.mode === 'saddle') {
+    const hint = document.createElement('div');
+    hint.className = 'input-hint';
+    const blanks = Math.ceil(state.pages.length / 4) * 4 - state.pages.length;
+    hint.textContent = `Print double-sided, flipping on the short edge. ${blanks ? `${blanks} blank page(s) added at the end. ` : ''}Stack the sheets in order, fold in the middle and staple.`;
+    stack.appendChild(hint);
+  }
+
   const wrapper = document.createElement('div');
   wrapper.className = 'preview-page';
   wrapper.appendChild(canvas);
   stack.appendChild(wrapper);
   previewArea.appendChild(stack);
 }
+
+function navButton(text, label, enabled, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'btn-secondary btn-small';
+  b.textContent = text;
+  b.title = label;
+  b.setAttribute('aria-label', label);
+  b.disabled = !enabled;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+window.addEventListener('resize', schedulePreview);

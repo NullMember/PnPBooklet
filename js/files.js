@@ -3,13 +3,15 @@
 
 const MM_TO_PT = 72 / 25.4;
 const MM_TO_PX = 96 / 25.4;
+const PREVIEW_PDF_SCALE = 2;
 
 // State
 const state = {
-  pages: [],       // Array of { type: 'image'|'pdf-page', data: ImageBitmap|canvas, width, height }
+  pages: [],       // { canvas, width, height, pdfPage?, src, pageNo, rotation } — canvas is preview resolution for PDF pages
   pageImages: [],  // rendered canvases for each page
   outputCanvases: [],
   pdfBytes: null,
+  sourceFiles: [], // the files the pages came from (page.src indexes this), for project saving
 };
 
 // DOM
@@ -38,65 +40,53 @@ dropZone.addEventListener('drop', e => {
   dropZone.classList.remove('dragover');
   handleFiles(e.dataTransfer.files);
 });
-fileInput.addEventListener('change', e => handleFiles(e.target.files));
+fileInput.addEventListener('change', e => {
+  handleFiles(e.target.files);
+  fileInput.value = ''; // allow adding the same file again
+});
 
-async function handleFiles(files) {
-  if (!files.length) return;
+// Add files (images and/or PDFs) after the pages already loaded. A dropped
+// batch is sorted by name; project loading keeps the given order.
+async function handleFiles(files, { sort = true } = {}) {
+  const fileArr = Array.from(files).filter(f => f.type === 'application/pdf' || f.type.startsWith('image/'));
+  if (!fileArr.length) return;
+  if (sort) fileArr.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   showLoading('Loading files...');
-
-  state.pages = [];
-  state.pageImages = [];
-  state.outputCanvases = [];
-  state.pdfBytes = null;
-  pageThumbs.innerHTML = '';
-  fileList.innerHTML = '';
-
-  const fileArr = Array.from(files);
-  const isPDF = fileArr.length === 1 && fileArr[0].type === 'application/pdf';
-
-  if (isPDF) {
-    await loadPDF(fileArr[0]);
-  } else {
-    const imageFiles = fileArr.filter(f => f.type.startsWith('image/'));
-    // Sort by name
-    imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    for (const f of imageFiles) {
-      await loadImage(f);
+  try {
+    for (const file of fileArr) {
+      const src = state.sourceFiles.length;
+      state.sourceFiles.push(file);
+      if (file.type === 'application/pdf') await loadPDF(file, src);
+      else await loadImage(file, src);
     }
+  } catch (err) {
+    console.error(err);
+    alert(`Could not load a file: ${err.message}`);
+  } finally {
+    hideLoading();
   }
-
-  // Show file info
-  if (isPDF) {
-    addFileInfo(fileArr[0].name, state.pages.length + ' pages');
-  } else {
-    addFileInfo(fileArr.length + ' images', state.pages.length + ' pages');
-  }
-
-  // Show thumbnails
-  renderThumbs();
-  downloadBtn.disabled = state.pages.length === 0;
-  hideLoading();
-  updatePreview();
+  pagesChanged();
 }
 
-async function loadPDF(file) {
+async function loadPDF(file, src) {
   const arrayBuf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
 
   for (let i = 1; i <= pdf.numPages; i++) {
-    loadingText.textContent = `Extracting page ${i}/${pdf.numPages}...`;
+    loadingText.textContent = `Extracting ${file.name}: page ${i}/${pdf.numPages}...`;
     const page = await pdf.getPage(i);
-    const vp = page.getViewport({ scale: 2 });
+    const vp = page.getViewport({ scale: PREVIEW_PDF_SCALE });
     const canvas = document.createElement('canvas');
     canvas.width = vp.width;
     canvas.height = vp.height;
     const ctx = canvas.getContext('2d');
     await page.render({ canvasContext: ctx, viewport: vp }).promise;
-    state.pages.push({ canvas, width: vp.width, height: vp.height });
+    // Keep the pdf.js page so export can re-render it at the output DPI
+    state.pages.push({ canvas, width: vp.width, height: vp.height, pdfPage: page, src, pageNo: i, rotation: 0 });
   }
 }
 
-async function loadImage(file) {
+async function loadImage(file, src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -105,20 +95,25 @@ async function loadImage(file) {
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
-      state.pages.push({ canvas, width: img.naturalWidth, height: img.naturalHeight });
+      state.pages.push({ canvas, width: img.naturalWidth, height: img.naturalHeight, src, pageNo: 0, rotation: 0 });
       URL.revokeObjectURL(img.src);
       resolve();
     };
-    img.onerror = reject;
+    img.onerror = () => reject(new Error(`${file.name} is not a readable image`));
     img.src = URL.createObjectURL(file);
   });
 }
 
-function addFileInfo(name, detail) {
+function updateFileInfo() {
+  if (!state.pages.length) {
+    fileList.innerHTML = '';
+    return;
+  }
+  const files = new Set(state.pages.map(p => p.src)).size;
   fileList.innerHTML = `
     <div class="file-info">
-      <span class="name">${name}</span>
-      <span class="page-count-badge">${detail}</span>
+      <span class="name">${files} file(s)</span>
+      <span class="page-count-badge">${state.pages.length} page(s)</span>
       <button class="remove" onclick="clearPages()">✕ Clear</button>
     </div>`;
 }
@@ -128,8 +123,10 @@ function clearPages() {
   state.pageImages = [];
   state.outputCanvases = [];
   state.pdfBytes = null;
+  state.sourceFiles = [];
   fileList.innerHTML = '';
   pageThumbs.innerHTML = '';
+  pageThumbs.classList.remove('page-strip');
   downloadBtn.disabled = true;
   previewArea.innerHTML = '';
   previewArea.appendChild(emptyState);
