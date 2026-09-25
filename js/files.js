@@ -25,25 +25,7 @@ const emptyState = document.getElementById('emptyState');
 const loading = document.getElementById('loading');
 const loadingText = document.getElementById('loadingText');
 
-// Drop zone events
-dropZone.addEventListener('click', e => {
-  // Avoid double-triggering the picker when the click originated on
-  // the (hidden) file input itself.
-  if (e.target === fileInput) return;
-  fileInput.click();
-});
-fileInput.addEventListener('click', e => e.stopPropagation());
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-dropZone.addEventListener('drop', e => {
-  e.preventDefault();
-  dropZone.classList.remove('dragover');
-  handleFiles(e.dataTransfer.files);
-});
-fileInput.addEventListener('change', e => {
-  handleFiles(e.target.files);
-  fileInput.value = ''; // allow adding the same file again
-});
+PnP.dropzone(dropZone, { input: fileInput, onFiles: (files) => handleFiles(files) });
 
 // Add files (images and/or PDFs) after the pages already loaded. A dropped
 // batch is sorted by name; project loading keeps the given order.

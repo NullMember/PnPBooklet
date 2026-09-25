@@ -103,5 +103,5 @@ async function buildPDF() {
     await new Promise(r => setTimeout(r, 0));
   }
 
-  pdf.save(cfg.mode === 'saddle' ? 'booklet.pdf' : 'sheets.pdf');
+  PnP.downloadBlob(pdf.output('blob'), cfg.mode === 'saddle' ? 'booklet.pdf' : 'sheets.pdf');
 }

@@ -13,7 +13,6 @@ document.querySelectorAll('.sidebar input, .sidebar select').forEach(el => {
 PnP.bindPreset(document.getElementById('sheetPreset'), document.getElementById('sheetW'), document.getElementById('sheetH'), 'paper');
 PnP.bindPreset(document.getElementById('pagePreset'), document.getElementById('pageW'), document.getElementById('pageH'), 'card');
 
-PnP.importButton(document.getElementById('importSlot'), (files) => handleFiles(files));
 
 document.getElementById('fitGridBtn').addEventListener('click', () => {
   const { cols, rows } = maxGridThatFits(readConfig());
