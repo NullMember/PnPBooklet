@@ -126,7 +126,17 @@ function rotateCanvas(src, rotation) {
   return out;
 }
 
-// Preview-resolution source for a page, with its rotation applied (cached).
+// A page's thumbnail with its rotation applied, for the page strip.
+function thumbSource(pg) {
+  const rotation = pg.rotation || 0;
+  if (!pg._thumb || pg._thumb.rotation !== rotation) {
+    const canvas = rotateCanvas(pg.thumb, rotation);
+    pg._thumb = { rotation, canvas, width: canvas.width, height: canvas.height };
+  }
+  return pg._thumb;
+}
+
+// Full-resolution source for an image page, with its rotation applied (cached).
 function previewSource(pg) {
   const rotation = pg.rotation || 0;
   if (!pg._rotated || pg._rotated.rotation !== rotation) {
@@ -134,6 +144,40 @@ function previewSource(pg) {
     pg._rotated = { rotation, canvas, width: canvas.width, height: canvas.height };
   }
   return pg._rotated;
+}
+
+// Recent PDF page renders for the preview, so paging back and forth doesn't
+// re-render. Only a few are kept: a long PDF must not hold every page.
+const RENDER_CACHE_SIZE = 12;
+const renderCache = new Map(); // key -> Promise<{ canvas, width, height }>
+
+// A page drawn at least `widthPx` wide (its full, uncropped width), rotated.
+// Image pages use the image itself.
+function pageSource(pg, widthPx) {
+  if (!pg.pdfPage) return Promise.resolve(previewSource(pg));
+  const rotation = pg.rotation || 0;
+  const bucket = Math.max(256, Math.ceil(widthPx / 256) * 256); // don't re-render for small resizes
+  const key = `${pg.src}:${pg.pageNo}:${rotation}:${bucket}`;
+  let entry = renderCache.get(key);
+  if (entry) {
+    renderCache.delete(key); // most recently used goes last
+  } else {
+    entry = (async () => {
+      const total = (pg.pdfPage.rotate + rotation) % 360;
+      const base = pg.pdfPage.getViewport({ scale: 1, rotation: total });
+      const vp = pg.pdfPage.getViewport({ scale: bucket / base.width, rotation: total });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(vp.width);
+      canvas.height = Math.round(vp.height);
+      await pg.pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      return { canvas, width: canvas.width, height: canvas.height };
+    })();
+    entry.catch(() => renderCache.delete(key)); // try again next time
+  }
+  renderCache.set(key, entry);
+  // Dropped renders are freed once nothing draws them any more.
+  while (renderCache.size > RENDER_CACHE_SIZE) renderCache.delete(renderCache.keys().next().value);
+  return entry;
 }
 
 // Crop rectangle (source pixels) for a page drawn into a cell of the given size.

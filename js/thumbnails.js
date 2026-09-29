@@ -11,7 +11,7 @@ function renderThumbs() {
     item.draggable = true;
     item.title = `Page ${i + 1} — drag to reorder`;
 
-    const src = previewSource(p);
+    const src = thumbSource(p);
     const thumb = document.createElement('canvas');
     thumb.width = 48;
     thumb.height = 64;

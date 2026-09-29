@@ -3,11 +3,14 @@
 
 const MM_TO_PT = 72 / 25.4;
 const MM_TO_PX = 96 / 25.4;
-const PREVIEW_PDF_SCALE = 2;
+const THUMB_MAX_PX = 160; // longest side of a PDF page's stored thumbnail
 
 // State
 const state = {
-  pages: [],       // { canvas, width, height, pdfPage?, src, pageNo, rotation } — canvas is preview resolution for PDF pages
+  // { thumb, pdfPage?, canvas?, src, pageNo, rotation }: PDF pages keep only a
+  // small thumbnail and are rendered when shown or exported (see pageSource);
+  // image pages keep the full image as `canvas`.
+  pages: [],
   pageImages: [],  // rendered canvases for each page
   outputCanvases: [],
   pdfBytes: null,
@@ -55,16 +58,16 @@ async function loadPDF(file, src) {
   const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
 
   for (let i = 1; i <= pdf.numPages; i++) {
-    loadingText.textContent = `Extracting ${file.name}: page ${i}/${pdf.numPages}...`;
+    loadingText.textContent = `Reading ${file.name}: page ${i}/${pdf.numPages}...`;
     const page = await pdf.getPage(i);
-    const vp = page.getViewport({ scale: PREVIEW_PDF_SCALE });
-    const canvas = document.createElement('canvas');
-    canvas.width = vp.width;
-    canvas.height = vp.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport: vp }).promise;
-    // Keep the pdf.js page so export can re-render it at the output DPI
-    state.pages.push({ canvas, width: vp.width, height: vp.height, pdfPage: page, src, pageNo: i, rotation: 0 });
+    const base = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: THUMB_MAX_PX / Math.max(base.width, base.height) });
+    const thumb = document.createElement('canvas');
+    thumb.width = Math.max(1, Math.round(vp.width));
+    thumb.height = Math.max(1, Math.round(vp.height));
+    await page.render({ canvasContext: thumb.getContext('2d'), viewport: vp }).promise;
+    // The pdf.js page is rendered again at the size the preview or export needs.
+    state.pages.push({ thumb, pdfPage: page, src, pageNo: i, rotation: 0 });
   }
 }
 
@@ -77,13 +80,22 @@ async function loadImage(file, src) {
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
-      state.pages.push({ canvas, width: img.naturalWidth, height: img.naturalHeight, src, pageNo: 0, rotation: 0 });
+      state.pages.push({ canvas, thumb: scaledCanvas(canvas, THUMB_MAX_PX), src, pageNo: 0, rotation: 0 });
       URL.revokeObjectURL(img.src);
       resolve();
     };
     img.onerror = () => reject(new Error(`${file.name} is not a readable image`));
     img.src = URL.createObjectURL(file);
   });
+}
+
+function scaledCanvas(src, maxPx) {
+  const k = Math.min(1, maxPx / Math.max(src.width, src.height));
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.round(src.width * k));
+  out.height = Math.max(1, Math.round(src.height * k));
+  out.getContext('2d').drawImage(src, 0, 0, out.width, out.height);
+  return out;
 }
 
 function updateFileInfo() {
@@ -102,6 +114,7 @@ function updateFileInfo() {
 
 function clearPages() {
   state.pages = [];
+  renderCache.clear();
   state.pageImages = [];
   state.outputCanvases = [];
   state.pdfBytes = null;

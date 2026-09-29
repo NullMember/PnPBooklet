@@ -12,7 +12,10 @@ function schedulePreview() {
 function updatePreview() {
   updateModeUI();
   if (state.pages.length === 0) return;
-  generatePreviewSheet();
+  generatePreviewSheet().catch((err) => {
+    console.error(err);
+    PnP.toast(`Could not draw the preview: ${err.message}`, 'error');
+  });
 }
 
 // Grid-only controls are hidden in booklet mode.
@@ -22,7 +25,12 @@ function updateModeUI() {
   document.getElementById('directionPanel').hidden = saddle;
 }
 
-function generatePreviewSheet() {
+// PDF pages are rendered for each preview, so a newer preview can start
+// before an older one finishes; only the newest is shown.
+let previewToken = 0;
+
+async function generatePreviewSheet() {
+  const token = ++previewToken;
   const cfg = readConfig();
   const geo = gridGeometry(cfg);
   const sides = buildSides(cfg, state.pages.length);
@@ -34,6 +42,11 @@ function generatePreviewSheet() {
   const canvasH = Math.round(cfg.sheetH * MM_TO_PX * previewScale);
   const pxPerMM = canvasW / cfg.sheetW;
 
+  // Render the side's pages at the size they're drawn (sharper on HiDPI).
+  const fullW = (cfg.pageW + cfg.cropLeft + cfg.cropRight) * pxPerMM * (window.devicePixelRatio || 1);
+  const sources = await Promise.all(side.cells.map(({ page }) => (page === null ? null : pageSource(state.pages[page], fullW))));
+  if (token !== previewToken) return;
+
   const canvas = document.createElement('canvas');
   canvas.width = canvasW;
   canvas.height = canvasH;
@@ -41,7 +54,7 @@ function generatePreviewSheet() {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvasW, canvasH);
 
-  side.cells.forEach(({ row, col, page }) => {
+  side.cells.forEach(({ row, col, page }, i) => {
     const x = geo.cellX(col) * pxPerMM;
     const y = geo.cellY(row) * pxPerMM;
     const w = cfg.pageW * pxPerMM;
@@ -62,7 +75,7 @@ function generatePreviewSheet() {
       return;
     }
 
-    const src = previewSource(state.pages[page]);
+    const src = sources[i];
     const { sx, sy, sw, sh } = cropRect(src, cfg);
     ctx.drawImage(src.canvas, sx, sy, sw, sh, x, y, w, h);
     drawBorders(ctx, x, y, w, h, cfg.borderStyle, cfg.borderWidth, cfg.borderColor, pxPerMM / MM_TO_PT);
@@ -105,8 +118,8 @@ function generatePreviewSheet() {
 
   const nav = document.createElement('div');
   nav.className = 'preview-nav';
-  const prev = navButton('‹', 'Previous side', previewSide > 0, () => { previewSide--; generatePreviewSheet(); });
-  const next = navButton('›', 'Next side', previewSide < sides.length - 1, () => { previewSide++; generatePreviewSheet(); });
+  const prev = navButton('‹', 'Previous side', previewSide > 0, () => { previewSide--; updatePreview(); });
+  const next = navButton('›', 'Next side', previewSide < sides.length - 1, () => { previewSide++; updatePreview(); });
   const info = document.createElement('span');
   info.textContent = `${side.label} · ${previewSide + 1} of ${sides.length} side(s)`;
   nav.append(prev, info, next);
