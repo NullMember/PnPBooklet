@@ -19,7 +19,7 @@
 <div class="container">
   <header>
     <h1>Booklet Creator</h1>
-    <p class="subtitle">Tile images and PDF pages into a print-ready grid, or impose them as a fold-and-staple booklet — with borders, spacing and page numbers.</p>
+    <p class="subtitle">Print rulebooks and other pages several to a sheet, or as a fold-and-staple booklet.</p>
   </header>
 
   <div class="content">
@@ -28,7 +28,7 @@
 
       <!-- File Input -->
       <div class="panel">
-        <div class="panel-title">Pages Input <span class="help" tabindex="0" data-tip="Images and PDF pages, in the order you add them (a dropped batch is sorted by name). Drag the page thumbnails to reorder them; each can be rotated or removed.">?</span></div>
+        <div class="panel-title">Pages Input <span class="help" tabindex="0" data-tip="Drag thumbnails to reorder. Each page can be rotated or removed.">?</span></div>
         <div class="dropzone" id="dropZone">
           <div class="dz-title">Drop images or a PDF here</div>
           <div>Images and PDFs — add as many as you like</div>
@@ -40,7 +40,7 @@
 
       <!-- Sheet Size -->
       <div class="panel">
-        <div class="panel-title">Sheet Size (output paper) <span class="help" tabindex="0" data-tip="The physical paper size you'll print on, e.g. A4 or Letter.">?</span></div>
+        <div class="panel-title">Sheet Size (output paper) <span class="help" tabindex="0" data-tip="The paper you print on.">?</span></div>
         <div class="control-group">
           <label for="sheetPreset">Preset</label>
           <select id="sheetPreset"></select>
@@ -59,7 +59,7 @@
 
       <!-- Page Size -->
       <div class="panel">
-        <div class="panel-title">Page Size (each page cell) <span class="help" tabindex="0" data-tip="The size of each individual source page/card as it's placed into the grid.">?</span></div>
+        <div class="panel-title">Page Size (each page cell) <span class="help" tabindex="0" data-tip="The size of each page on the sheet.">?</span></div>
         <div class="control-group">
           <label for="pagePreset">Preset</label>
           <select id="pagePreset"></select>
@@ -67,18 +67,20 @@
         <div class="row">
           <div class="control-group">
             <label for="pageW">Width (mm)</label>
-            <input type="number" id="pageW" value="63" min="5" max="1000" step="1" data-unit="mm">
+            <input type="number" id="pageW" value="148" min="5" max="1000" step="1" data-unit="mm">
           </div>
           <div class="control-group">
             <label for="pageH">Height (mm)</label>
-            <input type="number" id="pageH" value="88" min="5" max="1000" step="1" data-unit="mm">
+            <input type="number" id="pageH" value="210" min="5" max="1000" step="1" data-unit="mm">
           </div>
         </div>
+        <div class="input-hint">For card sheets, use Layout.</div>
+        <div id="sendSlot"></div>
       </div>
 
       <!-- Mode -->
       <div class="panel">
-        <div class="panel-title">Layout Mode <span class="help" tabindex="0" data-tip="Grid tiles pages in order across sheets. Saddle-stitch booklet prints two pages per side in fold order: print double-sided (flip on short edge), stack, fold in the middle and staple. Blank pages are added to reach a multiple of 4.">?</span></div>
+        <div class="panel-title">Layout Mode <span class="help" tabindex="0" data-tip="Booklet: print double-sided (flip on the short edge), fold in the middle and staple.">?</span></div>
         <div class="control-group">
           <select id="mode">
             <option value="grid">Grid (tile pages in order)</option>
@@ -89,7 +91,7 @@
 
       <!-- Grid Layout -->
       <div class="panel" id="gridPanel">
-        <div class="panel-title">Grid Layout <span class="help" tabindex="0" data-tip="How many pages are placed across and down each sheet. “Fit grid to sheet” picks the most that fit at the page size and gaps.">?</span></div>
+        <div class="panel-title">Grid Layout <span class="help" tabindex="0" data-tip="Pages across and down each sheet.">?</span></div>
         <div class="row">
           <div class="control-group">
             <label for="cols">Columns</label>
@@ -97,7 +99,7 @@
           </div>
           <div class="control-group">
             <label for="rows">Rows</label>
-            <input type="number" id="rows" value="2" min="1" max="20" step="1">
+            <input type="number" id="rows" value="1" min="1" max="20" step="1">
           </div>
         </div>
         <button type="button" class="btn-secondary btn-small" id="fitGridBtn">Fit grid to sheet</button>
@@ -105,7 +107,7 @@
 
       <!-- Direction -->
       <div class="panel" id="directionPanel">
-        <div class="panel-title">Page Order Direction <span class="help" tabindex="0" data-tip="The order pages fill the grid cells on each sheet — matters for booklets where pages must come out in reading order after folding or binding.">?</span></div>
+        <div class="panel-title">Page Order Direction <span class="help" tabindex="0" data-tip="The order pages fill each sheet.">?</span></div>
         <div class="control-group">
           <select id="direction">
             <option value="lr-tb">Left→Right, then Top→Bottom</option>
@@ -161,7 +163,7 @@
 
       <!-- Crop -->
       <div class="panel">
-        <div class="panel-title">Page Crop (mm) <span class="help" tabindex="0" data-tip="Trims this amount from each source page's edge before placing it — use it to strip existing margins or bleed from your source pages or PDF.">?</span></div>
+        <div class="panel-title">Page Crop (mm) <span class="help" tabindex="0" data-tip="Trims each source page's edges, e.g. margins or bleed.">?</span></div>
         <div class="row">
           <div class="control-group">
             <label for="cropTop">Top</label>
@@ -186,7 +188,7 @@
 
       <!-- Page Numbering -->
       <div class="panel">
-        <div class="panel-title">Page Numbering <span class="help" tabindex="0" data-tip="Prints a number on every page in page order, starting from Start Number. Offset is the distance from the page’s edge.">?</span></div>
+        <div class="panel-title">Page Numbering <span class="help" tabindex="0" data-tip="Offset is the distance from the page edge.">?</span></div>
         <div class="row">
           <div class="control-group">
             <label for="pageNumEnabled">Show Numbers</label>
@@ -236,7 +238,7 @@
 
       <!-- Output Quality -->
       <div class="panel">
-        <div class="panel-title">Output Quality <span class="help" tabindex="0" data-tip="PDF pages are re-rendered at this resolution when you download, so text and line art stay sharp. Image files are always used at their own resolution.">?</span></div>
+        <div class="panel-title">Output Quality <span class="help" tabindex="0" data-tip="PDF pages are rendered at this DPI. Images keep their own resolution.">?</span></div>
         <div class="row">
           <div class="control-group">
             <label for="outputDpi">PDF Render DPI</label>

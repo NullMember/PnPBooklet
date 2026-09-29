@@ -128,14 +128,14 @@ async function generatePreviewSheet() {
   if (geo.overflows) {
     const warn = document.createElement('div');
     warn.className = 'status error';
-    warn.textContent = `The pages need ${geo.gridW.toFixed(1)} × ${geo.gridH.toFixed(1)} mm but the sheet is ${cfg.sheetW} × ${cfg.sheetH} mm. Reduce the grid, gaps or page size${cfg.mode === 'grid' ? ' (or use “Fit grid to sheet”)' : ''}.`;
+    warn.textContent = `The pages don't fit the sheet. Reduce the grid, gaps or page size${cfg.mode === 'grid' ? ', or use “Fit grid to sheet”' : ''}.`;
     stack.appendChild(warn);
   }
   if (cfg.mode === 'saddle') {
     const hint = document.createElement('div');
     hint.className = 'input-hint';
     const blanks = Math.ceil(state.pages.length / 4) * 4 - state.pages.length;
-    hint.textContent = `Print double-sided, flipping on the short edge. ${blanks ? `${blanks} blank page(s) added at the end. ` : ''}Stack the sheets in order, fold in the middle and staple.`;
+    hint.textContent = `Print double-sided (short edge), fold and staple.${blanks ? ` ${blanks} blank page(s) added.` : ''}`;
     stack.appendChild(hint);
   }
 

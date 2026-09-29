@@ -11,7 +11,22 @@ document.querySelectorAll('.sidebar input, .sidebar select').forEach(el => {
 // ---- Shared PnPTools wiring ----
 
 PnP.bindPreset(document.getElementById('sheetPreset'), document.getElementById('sheetW'), document.getElementById('sheetH'), 'paper');
-PnP.bindPreset(document.getElementById('pagePreset'), document.getElementById('pageW'), document.getElementById('pageH'), 'card');
+// Pages are paper sizes: cards belong in Layout.
+const PAGE_SIZES = [
+  { id: 'a4', label: 'A4', w: 210, h: 297 },
+  { id: 'a5', label: 'A5', w: 148, h: 210 },
+  { id: 'a6', label: 'A6', w: 105, h: 148 },
+  { id: 'b5', label: 'B5', w: 176, h: 250 },
+  { id: 'letter', label: 'US Letter', w: 215.9, h: 279.4 },
+  { id: 'halfLetter', label: 'US Half Letter', w: 139.7, h: 215.9 },
+];
+PnP.bindPreset(document.getElementById('pagePreset'), document.getElementById('pageW'), document.getElementById('pageH'), PAGE_SIZES);
+
+PnP.sendMenu(document.getElementById('sendSlot'), {
+  from: 'Booklet',
+  targets: ['PnPLayout'],
+  getItems: () => state.sourceFiles.filter((f) => f.type.startsWith('image/')).map((f) => ({ name: f.name, blob: f })),
+});
 
 
 document.getElementById('fitGridBtn').addEventListener('click', () => {
